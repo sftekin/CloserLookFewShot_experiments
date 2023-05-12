@@ -6,7 +6,9 @@ import json
 import numpy as np
 import torchvision.transforms as transforms
 import os
-identity = lambda x:x
+
+def identity(x):
+    return x
 class SimpleDataset:
     def __init__(self, data_file, transform, target_transform=identity):
         with open(data_file, 'r') as f:

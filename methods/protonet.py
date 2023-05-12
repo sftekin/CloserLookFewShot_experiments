@@ -1,5 +1,6 @@
 # This code is modified from https://github.com/jakesnell/prototypical-networks 
 
+import os
 import backbone
 import torch
 import torch.nn as nn
@@ -23,14 +24,14 @@ class ProtoNet(MetaTemplate):
 
         dists = euclidean_dist(z_query, z_proto)
         scores = -dists
-        return scores
+        return scores, (z_support, z_query)
 
 
     def set_forward_loss(self, x):
         y_query = torch.from_numpy(np.repeat(range( self.n_way ), self.n_query ))
         y_query = Variable(y_query.cuda())
 
-        scores = self.set_forward(x)
+        scores = self.set_forward(x) * 0.8
 
         return self.loss_fn(scores, y_query )
 
