@@ -131,7 +131,7 @@ def get_episode_loader(meta_file_path, image_size, n_episodes, augmentation,
                          load_sampler_indexes=load_sampler_indexes)
 
     # load the batch sampler if load_sampler_indexes is true
-    batch_sampler_path = os.path.join(dataset.sampler_dir, f"{dataset.dataset}_batch_sampler.pkl")
+    batch_sampler_path = os.path.join(dataset.sampler_dir, f"{dataset.dataset}_{n_episodes}_batch_sampler.pkl")
     if load_sampler_indexes and os.path.exists(batch_sampler_path):
         with open(batch_sampler_path, "rb") as f:
             batch_sampler = pkl.load(f)

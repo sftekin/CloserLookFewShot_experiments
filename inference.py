@@ -52,7 +52,7 @@ def infer(model, loader, mode, method, model_name, n_query, n_way, n_shot, **kwa
         negatives[i, pred != y_query] = 1
         corrects = np.sum(pred == y_query)
         acc = corrects / len(y_query) * 100
-        print(f"\rEpisode {i} / {len(loader)}: {acc:.2f}", end="", flush=True)
+        print(f"\rEpisode {i+1} / {len(loader)}: {acc:.2f}", end="", flush=True)
         acc_all.append(acc)
 
     epoch_time = time.time() - start_time
@@ -62,9 +62,15 @@ def infer(model, loader, mode, method, model_name, n_query, n_way, n_shot, **kwa
     acc_mean = np.mean(acc_all)
     acc_std = np.std(acc_all)
     print(f'{mode}->{len(loader)} Acc = {acc_mean:.2f} +- {1.96 * acc_std / np.sqrt(len(loader)):.2f}')
-    np.save(f"ensemble/model_outs/{method}_{model_name}_{mode}_logits.npy", logits)
-    np.save(f"ensemble/model_outs/{method}_{model_name}_{mode}_predicts.npy", predicts)
-    np.save(f"ensemble/negatives/{method}_{model_name}_{mode}_negatives.npy", negatives)
+
+    model_outs_dir = os.path.join(configs.save_dir, "inference", "model_outs", method)
+    if not os.path.exists(model_outs_dir):
+        os.makedirs(model_outs_dir)
+
+    save_str = f"{method}_{model_name}_{mode}" if method != "DeepEMD" else f"{method}_{mode}"
+    np.save(os.path.join(model_outs_dir, f"{save_str}_logits.npy"), logits)
+    np.save(os.path.join(model_outs_dir, f"{save_str}_predicts.npy"), predicts)
+    np.save(os.path.join(model_outs_dir, f"{save_str}_negatives.npy"), negatives)
 
 
 def run(method, data_set, ep_num, model_name):
@@ -119,7 +125,7 @@ def run(method, data_set, ep_num, model_name):
         model = DeepEMD(args=deep_emd_args)
         model = model.cuda()
     elif "simpleshot" in method:
-        bb_model = model_name
+        bb_model = model_name.lower()
         bb_mapper = {
             "conv4": ss_backbones.conv4,
             "conv6": ss_backbones.conv6,
@@ -190,10 +196,10 @@ if __name__ == '__main__':
                         choices=["maml_approx", "matchingnet", "protonet", "relationnet",
                                  "relationnet_softmax", "DeepEMD",
                                  "simpleshot"])
-    parser.add_argument('--model_name', default="resnet18", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
-                                                                     'ResNet34', 'ResNet50', "resnet18"])
+    parser.add_argument('--model_name', default="WideRes", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
+                                                                     'ResNet34', "WideRes", "DenseNet121"])
     parser.add_argument('--data_set', default="novel", choices=["base", "val", "novel"])
-    parser.add_argument('--ep_num', default=600, type=int)
+    parser.add_argument('--ep_num', default=2, type=int)
     args = parser.parse_args()
     print(vars(args))
 
