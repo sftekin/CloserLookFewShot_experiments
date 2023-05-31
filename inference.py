@@ -83,7 +83,7 @@ def run(method, data_set, ep_num, model_name):
     if method == "DeepEMD":
         image_size = 84
     elif "simpleshot" in method:
-        if model_name in ["conv4", "conv6"]:
+        if model_name.lower() in ["conv4", "conv6"]:
             image_size = 84
         else:
             image_size = 96
