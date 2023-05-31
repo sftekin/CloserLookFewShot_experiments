@@ -150,7 +150,7 @@ def get_episode_loader(meta_file_path, image_size, n_episodes, augmentation,
     data_loader = DataLoader(dataset=dataset,
                              batch_sampler=batch_sampler,
                              num_workers=num_workers,
-                             pin_memory=True)
+                             pin_memory=False)
     return data_loader
 
 
