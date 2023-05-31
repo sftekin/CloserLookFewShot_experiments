@@ -3,6 +3,7 @@ import torch
 import json
 import numpy as np
 import torch.nn
+import time
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import transforms
 from PIL import Image
@@ -34,9 +35,15 @@ class DatasetIM:
         self.labels = np.unique(self.meta['image_labels']).tolist()
         self.filenames = []
         self.labellist = []
+        self.counter = {}
         for x, y in zip(self.meta['image_names'], self.meta['image_labels']):
+            if y not in self.counter.keys():
+                self.counter[y] = 0
+            elif self.counter[y] >= 100:
+                continue
             self.filenames.append(x)
             self.labellist.append(y)
+            self.counter[y] += 1
 
         self.norm_param = {
             "mean": [0.485, 0.456, 0.406],
@@ -126,11 +133,12 @@ if __name__ == '__main__':
     n_query = 15
     n_way = 5
     n_shot = 1
+    batch_size = 64
     dataset_type = "val"
 
     parser = argparse.ArgumentParser(description='few-shot inference')
     parser.add_argument('--seed', default=42, type=int)
-    parser.add_argument('--method', default='protonet',
+    parser.add_argument('--method', default='DeepEMD',
                         choices=["maml_approx", "matchingnet", "protonet", "relationnet_softmax", "DeepEMD",
                                  "simpleshot"])
     parser.add_argument('--model_name', default="ResNet18", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
@@ -161,23 +169,28 @@ if __name__ == '__main__':
     ds = DatasetIM(meta_file, imsize=image_size)
 
     first_loader = DataLoader(dataset=ds, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
-    second_loader = DataLoader(dataset=ds, batch_size=64, shuffle=False, num_workers=0, pin_memory=False)
+    second_loader = DataLoader(dataset=ds, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=False)
 
     model.n_way = 1
-    model.n_query = 64
     model.n_support = 1
 
     distance_mat = np.zeros((len(first_loader), len(first_loader)))
     for i, (sup, sup_y) in enumerate(first_loader):
         # if i == 1: break
+        start_time = time.time()
         for j, (query, query_y) in enumerate(second_loader):
-            if j % 10 == 0:
+            if j % 5 == 0:
                 print(f"\r{j / len(second_loader) * 100}", flush=True, end="")
-            row_idx = (64 * j)
+            row_idx = (batch_size * j)
             with torch.no_grad():
-                dist, _ = model.set_forward(torch.cat([sup, query]).unsqueeze(0))
-                distance_mat[i, row_idx:row_idx+64] = dist.cpu().numpy().flatten()
-        print(f"\n*** {i}/{len(first_loader)} sample is finished ***")
+                if args.method == "DeepEMD":
+                    dist, embed = deep_emd_episode(model, torch.cat([sup, query]).unsqueeze(0), y=None, n_way=1, n_support=1, n_query=query.shape[0])
+                else:
+                    model.n_query = query.shape[0]
+                    dist, _ = model.set_forward(torch.cat([sup, query]).unsqueeze(0))
+
+                distance_mat[i, row_idx:row_idx+batch_size] = dist.cpu().numpy().flatten()
+        print(f"\n*** {i}/{len(first_loader)} sample is finished in {time.time() - start_time}***")
 
     with open("dist.npy", "wb") as f:
         np.save(f, distance_mat)

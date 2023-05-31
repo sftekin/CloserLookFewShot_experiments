@@ -15,7 +15,7 @@ def ss_episode(model, x, n_way, n_shot, n_query, out_mean):
                                        query.cpu().numpy(),
                                        base_mean=out_mean,
                                        k=1)
-    return pred, distance, (support, query)
+    return pred, distance
 
 
 def ss_step(model, x, n_way, n_shot, n_query):

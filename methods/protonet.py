@@ -24,7 +24,7 @@ class ProtoNet(MetaTemplate):
 
         dists = euclidean_dist(z_query, z_proto)
         scores = -dists
-        return scores, (z_support, z_query)
+        return scores
 
 
     def set_forward_loss(self, x):

@@ -105,7 +105,7 @@ def deep_emd_episode(model, x, y, n_way, n_support, n_query):
     model.mode = 'meta'
     logits = model((data_shot, data_query))
 
-    return logits, (data_shot, data_query)
+    return logits
 
 
 def emd_load_model(model, dir, mode="cuda"):

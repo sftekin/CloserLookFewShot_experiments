@@ -16,6 +16,7 @@ import backbone
 from methods.deep_emd import DeepEMD
 from methods.emd_utils import emd_load_model, get_deep_emd_args, deep_emd_episode
 from methods.simpleshot_utils import ss_step, ss_episode
+from data_manager.episode_loader import get_episode_loader
 
 import methods.ss_backbones as ss_backbones
 
@@ -27,36 +28,25 @@ def infer(model, loader, mode, method, model_name, n_query, n_way, n_shot, **kwa
     predicts = np.zeros((len(loader), n_query * n_way))
     negatives = np.zeros((len(loader), n_query * n_way))
     start_time = time.time()
-    for i, file_name in enumerate(loader):
-        with open(file_name, "rb") as f:
-            x, y = torch.load(f)
+    for i, (x, y) in enumerate(loader):
         if method == "DeepEMD":
             with torch.no_grad():
-                scores, embed = deep_emd_episode(model, x, y, n_way=n_way, n_support=n_shot, n_query=n_query)
+                scores = deep_emd_episode(model, x, y, n_way=n_way, n_support=n_shot, n_query=n_query)
                 y_query = np.tile(range(n_way), n_query)
                 pred = scores.argmax(dim=1).detach().cpu().numpy()
                 logits[i, :] = scores.detach().cpu().numpy()
         elif "simpleshot" in method:
             with torch.no_grad():
-                pred, distance, embed = ss_episode(model, x, n_way, n_shot, n_query, out_mean=kwargs["base_mean"])
+                pred, distance = ss_episode(model, x, n_way, n_shot, n_query, out_mean=kwargs["base_mean"])
                 logits[i, :] = distance.T
                 y_query = np.repeat(range(n_way), n_query)
                 pred = pred.squeeze()
         else:
             model.n_query = x.size(1) - n_shot
-            scores, embed = model.set_forward(x)
+            scores = model.set_forward(x)
             y_query = np.repeat(range(n_way), model.n_query)
-            pred = scores.argmax(dim=1).detach().cpu().numpy()
+            pred = scores.data.cpu().numpy().argmax(axis=1)
             logits[i, :] = scores.detach().cpu().numpy()
-
-        if kwargs["save_features"]:
-            file_dir = os.path.join(os.path.dirname(__file__), f"features/{method}/{mode}")
-            if not os.path.exists(file_dir):
-                os.makedirs(file_dir)
-            q_path = os.path.join(file_dir, f"support_{i}.pt")
-            s_path = os.path.join(file_dir, f"query_{i}.pt")
-            torch.save(embed[0], q_path)
-            torch.save(embed[1], s_path)
 
         predicts[i, :] = pred
         negatives[i, pred != y_query] = 1
@@ -87,7 +77,7 @@ def run(method, data_set, ep_num, model_name):
     if method == "DeepEMD":
         image_size = 84
     elif "simpleshot" in method:
-        if "conv4" in model_name:
+        if model_name in ["conv4", "conv6"]:
             image_size = 84
         else:
             image_size = 96
@@ -100,28 +90,9 @@ def run(method, data_set, ep_num, model_name):
     checkpoint_dir = '%s/checkpoints/%s/%s_%s' % (configs.save_dir, dataset_name, model_name, method)
     checkpoint_dir += '_%dway_%dshot' % (n_way, n_shot)
 
-    data_mgr = SetDataManager(image_size, n_query=n_query, n_way=n_way, n_support=n_shot, n_eposide=ep_num)
-    loader = data_mgr.get_data_loader(base_file, aug=False)
-
-    # I have to store the loader since during initialization of models,
-    # there is a random op. which changes the seed for the next call.
-    print(f'fix {data_set} set for all epochs')
-    temp_dir = os.path.join("temp", str(image_size), data_set)
-    loader_list = []
-    if os.path.exists(temp_dir):
-        print(f'{temp_dir} found...')
-        files = np.array([os.path.join(temp_dir, f) for f in os.listdir(temp_dir)])
-        idx = [int(os.path.splitext(f)[0].split("_")[1]) for f in files]
-        loader_list = files[np.argsort(idx)].tolist()
-    else:
-        print(f'{temp_dir} not found creating...')
-        os.makedirs(temp_dir)
-        for i, batch in enumerate(loader):
-            print(f"\rEpisode {i} / {len(loader)}", end="", flush=True)
-            file_name = os.path.join(temp_dir, f"batch_{i}.pt")
-            loader_list.append(file_name)
-            with open(file_name, "wb") as f:
-                torch.save(batch, f)
+    loader = get_episode_loader(meta_file_path=base_file, image_size=image_size, n_episodes=ep_num,
+                                augmentation=False, n_way=n_way, n_shot=n_shot, n_query=n_query,
+                                num_workers=8, load_sampler_indexes=True)
 
     if method in ['relationnet', 'relationnet_softmax']:
         if 'Conv4' in model_name:
@@ -131,6 +102,7 @@ def run(method, data_set, ep_num, model_name):
         else:
             feature_model = lambda: model_dict[model_name](flatten=False)
         loss_type = 'mse' if method == 'relationnet' else 'softmax'
+
         model = RelationNet(feature_model, loss_type=loss_type, n_way=n_way, n_support=n_shot)
     elif method in ['maml', 'maml_approx']:
         backbone.ConvBlock.maml = True
@@ -150,6 +122,7 @@ def run(method, data_set, ep_num, model_name):
         bb_model = model_name
         bb_mapper = {
             "conv4": ss_backbones.conv4,
+            "conv6": ss_backbones.conv6,
             "resnet10": ss_backbones.resnet10,
             "resnet18": ss_backbones.resnet18,
             "resnet34": ss_backbones.resnet34,
@@ -172,15 +145,16 @@ def run(method, data_set, ep_num, model_name):
         model.load_state_dict(tmp["state_dict"])
     else:
         modelfile = get_best_file(checkpoint_dir)
+
         model = model.cuda()
         tmp = torch.load(modelfile)
         model.load_state_dict(tmp['state'])
-        model.eval()
+        # model.eval()
 
     # prep infer args
     infer_args = {
         "model": model,
-        "loader": loader_list,
+        "loader": loader,
         "method": method,
         "model_name": model_name,
         "mode": data_set,
@@ -193,7 +167,9 @@ def run(method, data_set, ep_num, model_name):
     if "simpleshot" in method:
         print("Simple shot requires the mean of the features extracted from base dataset")
         base_ds_path = configs.data_dir[dataset_name] + f'base.json'
-        base_loader = data_mgr.get_data_loader(base_ds_path, aug=False)
+        base_loader = get_episode_loader(meta_file_path=base_ds_path, image_size=image_size, n_episodes=ep_num,
+                                         augmentation=False, n_way=n_way, n_shot=n_shot, n_query=n_query,
+                                         num_workers=8, load_sampler_indexes=True)
         base_mean = []
         with torch.no_grad():
             for i, (x, y) in enumerate(base_loader):
@@ -210,13 +186,14 @@ def run(method, data_set, ep_num, model_name):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='few-shot inference')
     parser.add_argument('--seed', default=42, type=int)
-    parser.add_argument('--method', default='protonet',
-                        choices=["maml_approx", "matchingnet", "protonet", "relationnet_softmax", "DeepEMD",
+    parser.add_argument('--method', default='simpleshot',
+                        choices=["maml_approx", "matchingnet", "protonet", "relationnet",
+                                 "relationnet_softmax", "DeepEMD",
                                  "simpleshot"])
-    parser.add_argument('--model_name', default="ResNet18", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
+    parser.add_argument('--model_name', default="resnet18", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
                                                                      'ResNet34', 'ResNet50', "resnet18"])
-    parser.add_argument('--data_set', default="base", choices=["base", "val", "novel"])
-    parser.add_argument('--ep_num', default=1000, type=int)
+    parser.add_argument('--data_set', default="novel", choices=["base", "val", "novel"])
+    parser.add_argument('--ep_num', default=600, type=int)
     args = parser.parse_args()
     print(vars(args))
 
