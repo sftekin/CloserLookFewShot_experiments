@@ -10,11 +10,12 @@ from data_manager.transform_loader import TransformLoader
 
 
 class EpisodeSet(Dataset):
-    def __init__(self, meta_file_path, transform, batch_size, load_sampler_indexes=False):
+    def __init__(self, meta_file_path, transform, batch_size, load_sampler_indexes=False, max_batch_count=1000):
         self.meta_file_path = meta_file_path
         self.transform = transform
         self.batch_size = batch_size
         self.load_sampler_indexes = load_sampler_indexes
+        self.max_batch_count = max_batch_count
         self.dataset = os.path.basename(meta_file_path).split(".")[0]
         self.working_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.sampler_dir = os.path.join(self.working_dir, "checkpoints", "miniImagenet", "sampler")
@@ -40,18 +41,20 @@ class EpisodeSet(Dataset):
             self.sampler_per_class = {}
         create_sampler = False if self.sampler_per_class else True
 
-        self.class_dataloader = []
+        self.class_iterator = []
         for label in self.labels:
             filenames = self.class2files[label]
             if create_sampler:
-                im_sampler = RandomSampler(n_samples_per_class=len(filenames), batch_size=batch_size)
+                im_sampler = RandomSampler(n_samples=len(filenames),
+                                           batch_size=batch_size,
+                                           max_batch_count=max_batch_count)
                 self.sampler_per_class[label] = list(im_sampler)
             cls_dataset = ClassDataset(filenames=filenames, label=label, transform=transform)
             data_loader = DataLoader(dataset=cls_dataset,
                                      batch_sampler=self.sampler_per_class[label],
                                      num_workers=0,
                                      pin_memory=False)
-            self.class_dataloader.append(data_loader)
+            self.class_iterator.append(iter(data_loader))
 
         # saving the sampler dict
         if not os.path.exists(self.sampler_dir):
@@ -74,7 +77,8 @@ class EpisodeSet(Dataset):
 
     def __getitem__(self, i):
         # loads batch size images from the loader of the class i
-        return next(iter(self.class_dataloader[i]))
+        item = next(self.class_iterator[i])
+        return item
 
 
 class ClassDataset(Dataset):
@@ -93,17 +97,17 @@ class ClassDataset(Dataset):
 
 
 class RandomSampler:
-    def __init__(self, n_samples_per_class, batch_size):
-        self.n_samples_per_class = n_samples_per_class
+    def __init__(self, n_samples, batch_size, max_batch_count):
+        self.n_samples = n_samples
         self.batch_size = batch_size
-        self.indexes = torch.randperm(n_samples_per_class)
+        self.max_batch_count = max_batch_count
 
     def __len__(self):
-        return self.n_samples_per_class // self.batch_size + 1
+        return self.max_batch_count
 
     def __iter__(self):
-        for i in range(0, self.n_samples_per_class, self.batch_size):
-            yield self.indexes[i:i+self.batch_size]
+        for i in range(self.max_batch_count):
+            yield torch.randperm(self.n_samples)[:self.batch_size]
 
 
 class EpisodeBatchSampler:
@@ -128,6 +132,7 @@ def get_episode_loader(meta_file_path, image_size, n_episodes, augmentation,
     dataset = EpisodeSet(meta_file_path=meta_file_path,
                          transform=transform.get_transform(),
                          batch_size=n_shot + n_query,
+                         max_batch_count=n_episodes,
                          load_sampler_indexes=load_sampler_indexes)
 
     # load the batch sampler if load_sampler_indexes is true
@@ -152,6 +157,21 @@ def get_episode_loader(meta_file_path, image_size, n_episodes, augmentation,
                              num_workers=num_workers,
                              pin_memory=False)
     return data_loader
+
+
+def get_sample_indexes(dataset, batch_sampler):
+    my_batch = []
+    track = {c: 0 for c in dataset.labels}
+    for batch_classes in batch_sampler:
+        batch = []
+        for i in batch_classes:
+            label = list(dataset.labels)[i]
+            idx = track[label]
+            samples = dataset.sampler_per_class[label][idx]
+            track[label] += 1
+            batch.append(samples)
+        my_batch.append(torch.stack(batch))
+    return my_batch
 
 
 if __name__ == '__main__':

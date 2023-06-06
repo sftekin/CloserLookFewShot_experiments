@@ -192,13 +192,13 @@ def run(method, data_set, ep_num, model_name):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='few-shot inference')
     parser.add_argument('--seed', default=50, type=int)
-    parser.add_argument('--method', default='simpleshot',
+    parser.add_argument('--method', default='protonet',
                         choices=["maml_approx", "matchingnet", "protonet", "relationnet",
                                  "relationnet_softmax", "DeepEMD",
                                  "simpleshot"])
-    parser.add_argument('--model_name', default="WideRes", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
+    parser.add_argument('--model_name', default="ResNet18", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
                                                                      'ResNet34', "WideRes", "DenseNet121"])
-    parser.add_argument('--data_set', default="novel", choices=["base", "val", "novel"])
+    parser.add_argument('--data_set', default="val", choices=["base", "val", "novel"])
     parser.add_argument('--ep_num', default=600, type=int)
     args = parser.parse_args()
     print(vars(args))
