@@ -198,7 +198,7 @@ if __name__ == '__main__':
                                  "simpleshot"])
     parser.add_argument('--model_name', default="ResNet18", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
                                                                      'ResNet34', "WideRes", "DenseNet121"])
-    parser.add_argument('--data_set', default="val", choices=["base", "val", "novel"])
+    parser.add_argument('--data_set', default="novel", choices=["base", "val", "novel"])
     parser.add_argument('--ep_num', default=600, type=int)
     args = parser.parse_args()
     print(vars(args))

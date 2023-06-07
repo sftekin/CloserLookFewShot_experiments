@@ -159,7 +159,7 @@ def get_episode_loader(meta_file_path, image_size, n_episodes, augmentation,
     return data_loader
 
 
-def get_sample_indexes(dataset, batch_sampler):
+def get_sample_indexes(dataset, batch_sampler, n_query, n_way):
     my_batch = []
     track = {c: 0 for c in dataset.labels}
     for batch_classes in batch_sampler:
@@ -171,7 +171,33 @@ def get_sample_indexes(dataset, batch_sampler):
             track[label] += 1
             batch.append(samples)
         my_batch.append(torch.stack(batch))
-    return my_batch
+
+    all_sample_idx = torch.stack(my_batch)
+    support_idx = all_sample_idx[:, :, 0]
+    query_idx = all_sample_idx[:, :, 1:].reshape(-1, n_query*n_way)
+
+    return support_idx, query_idx
+
+
+def visualize_episode(input_idx, dataset, batch_sampler, n_query, n_way):
+    support_idx, query_idx = get_sample_indexes(dataset, batch_sampler, n_query, n_way)
+
+    episode_idx = input_idx // (n_query * n_way)
+    support_indexes = support_idx[episode_idx]
+    query_idx = query_idx[episode_idx, input_idx % (n_query * n_way)]
+
+    all_classes = list(dataset.labels)
+    support_classes = [all_classes[i] for i in batch_sampler[episode_idx]]
+    query_class = support_classes[input_idx % n_way]
+
+    support_paths = []
+    for sup_cls, sup_idx in zip(support_classes, support_indexes):
+        support_paths.append(dataset.class2files[sup_cls][sup_idx])
+
+    query_path = dataset.class2files[query_class][query_idx]
+
+    # img = Image.open(self.filenames[item]).convert('RGB')
+
 
 
 if __name__ == '__main__':
