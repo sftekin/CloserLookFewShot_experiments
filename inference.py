@@ -27,23 +27,29 @@ def infer(model, loader, mode, method, model_name, n_query, n_way, n_shot, **kwa
     logits = np.zeros((len(loader), n_query * n_way, n_way))
     predicts = np.zeros((len(loader), n_query * n_way))
     negatives = np.zeros((len(loader), n_query * n_way))
-    start_time = time.time()
+    one_forward_pass = 0
     for i, (x, y) in enumerate(loader):
         if method == "DeepEMD":
             with torch.no_grad():
+                start_time = time.time()
                 scores = deep_emd_episode(model, x, y, n_way=n_way, n_support=n_shot, n_query=n_query)
+                one_forward_pass += time.time() - start_time
                 y_query = np.tile(range(n_way), n_query)
                 pred = scores.argmax(dim=1).detach().cpu().numpy()
                 logits[i, :] = scores.detach().cpu().numpy()
         elif "simpleshot" in method:
             with torch.no_grad():
+                start_time = time.time()
                 pred, distance = ss_episode(model, x, n_way, n_shot, n_query, out_mean=kwargs["base_mean"])
+                one_forward_pass += time.time() - start_time
                 logits[i, :] = distance.T
                 y_query = np.repeat(range(n_way), n_query)
                 pred = pred.squeeze()
         else:
             model.n_query = x.size(1) - n_shot
+            start_time = time.time()
             scores = model.set_forward(x)
+            one_forward_pass += time.time() - start_time
             y_query = np.repeat(range(n_way), model.n_query)
             pred = scores.data.cpu().numpy().argmax(axis=1)
             logits[i, :] = scores.detach().cpu().numpy()
@@ -55,8 +61,7 @@ def infer(model, loader, mode, method, model_name, n_query, n_way, n_shot, **kwa
         print(f"\rEpisode {i+1} / {len(loader)}: {acc:.2f}", end="", flush=True)
         acc_all.append(acc)
 
-    epoch_time = time.time() - start_time
-    print(f"Took {epoch_time:.2f} seconds")
+    print(f"\nApprox, one forward pass takes {one_forward_pass/len(loader):.3f} seconds")
 
     acc_all = np.asarray(acc_all)
     acc_mean = np.mean(acc_all)
@@ -71,6 +76,18 @@ def infer(model, loader, mode, method, model_name, n_query, n_way, n_shot, **kwa
     np.save(os.path.join(model_outs_dir, f"{save_str}_logits.npy"), logits)
     np.save(os.path.join(model_outs_dir, f"{save_str}_predicts.npy"), predicts)
     np.save(os.path.join(model_outs_dir, f"{save_str}_negatives.npy"), negatives)
+
+
+def calc_model_size(model):
+    param_size = 0
+    for param in model.parameters():
+        param_size += param.nelement() * param.element_size()
+    buffer_size = 0
+    for buffer in model.buffers():
+        buffer_size += buffer.nelement() * buffer.element_size()
+
+    size_all_mb = (param_size + buffer_size) / 1024 ** 2
+    print('model size: {:.3f}MB'.format(size_all_mb))
 
 
 def run(method, data_set, ep_num, model_name):
@@ -170,6 +187,8 @@ def run(method, data_set, ep_num, model_name):
         "save_features": False
     }
 
+    calc_model_size(model)
+
     if "simpleshot" in method:
         print("Simple shot requires the mean of the features extracted from base dataset")
         base_ds_path = configs.data_dir[dataset_name] + f'base.json'
@@ -192,11 +211,11 @@ def run(method, data_set, ep_num, model_name):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='few-shot inference')
     parser.add_argument('--seed', default=50, type=int)
-    parser.add_argument('--method', default='protonet',
+    parser.add_argument('--method', default='simpleshot',
                         choices=["maml_approx", "matchingnet", "protonet", "relationnet",
                                  "relationnet_softmax", "DeepEMD",
                                  "simpleshot"])
-    parser.add_argument('--model_name', default="ResNet18", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
+    parser.add_argument('--model_name', default="DenseNet121", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
                                                                      'ResNet34', "WideRes", "DenseNet121"])
     parser.add_argument('--data_set', default="novel", choices=["base", "val", "novel"])
     parser.add_argument('--ep_num', default=600, type=int)
