@@ -71,7 +71,7 @@ def visualize_episode(input_idx, support_idx, query_idx, dataset, batch_sampler,
         x_tick_label = f"Support-{i}"
         for model_n, pred_idx in zip(model_names, base_preds):
             if i == pred_idx:
-                x_tick_label += f"\n{model_n.split('_')[0]}"
+                x_tick_label += f"\n{model_n}"
         if i == ens_pred:
             x_tick_label += "\nEnsemble"
         ax.set_xticklabels([x_tick_label])
@@ -82,7 +82,7 @@ def visualize_episode(input_idx, support_idx, query_idx, dataset, batch_sampler,
     base_logits_ = np.concatenate([ens_logits[None, :], base_logits])
     for i in range(len(model_names_)):
         sns.histplot(x=x_axis, weights=base_logits_[i], kde=True, discrete=True, kde_kws={'cut': 1},
-                     line_kws={'linewidth': 4}, label=model_names_[i].split("_")[0], ax=ax)
+                     line_kws={'linewidth': 4}, label=model_names_[i], ax=ax)
         x_axis = x_axis + n_way
         ax.legend()
     ax.set_xticks([])
@@ -123,13 +123,14 @@ if __name__ == '__main__':
 
     support_idx, query_idx = get_sample_indexes(dataset, batch_sampler, n_query, n_way)
 
-    selected_arr = stats["ens_stats"]["protonet_ResNet18-simpleshot_ResNet18"].squeeze()
+    save_name = "ensemble"
+    selected_arr = stats["ens_stats"][save_name].squeeze()
 
-    rand_int = np.random.permutation(len(selected_arr))[:100]
+    rand_int = np.random.permutation(len(selected_arr))[:20]
     count = 0
     for j in selected_arr[rand_int]:
         print(f"{count}/{len(rand_int)}")
         visualize_episode(j, support_idx, query_idx, dataset,
-                          batch_sampler, n_query, n_way, save_name="proto_simpleshot_ensemble")
+                          batch_sampler, n_query, n_way, save_name=f"{save_name}_ensemble")
         count += 1
 
