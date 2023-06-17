@@ -92,7 +92,7 @@ def calc_model_size(model):
     print('model size: {:.3f}MB'.format(size_all_mb))
 
 
-def run(method, dataset_name, class_type, ep_num, model_name, aug_used=False):
+def run(method, dataset_name, class_type, ep_num, model_name, aug_used=False, cross=False):
     n_query = 15
     n_way = 5
     n_shot = 1
@@ -157,15 +157,20 @@ def run(method, dataset_name, class_type, ep_num, model_name, aug_used=False):
     else:
         raise ValueError
 
+    if cross:
+        trained_dataset = "miniImagenet"
+    else:
+        trained_dataset = dataset_name
+
     if method == "DeepEMD":
         model = emd_load_model(model, dir=f"{configs.save_dir}/checkpoints"
-                                          f"/{dataset_name}/DeepEMD/max_acc.pth", mode="cuda")
+                                          f"/{trained_dataset}/DeepEMD/max_acc.pth", mode="cuda")
     elif "simpleshot" in method:
-        save_path = f"{configs.save_dir}/checkpoints/{dataset_name}/SimpleShot/{bb_model}/checkpoint.pth.tar"
+        save_path = f"{configs.save_dir}/checkpoints/{trained_dataset}/SimpleShot/{bb_model}/checkpoint.pth.tar"
         tmp = torch.load(save_path)
         model.load_state_dict(tmp["state_dict"])
     else:
-        checkpoint_dir = '%s/checkpoints/%s/%s_%s' % (configs.save_dir, dataset_name, model_name, method)
+        checkpoint_dir = '%s/checkpoints/%s/%s_%s' % (configs.save_dir, trained_dataset, model_name, method)
         if aug_used:
             checkpoint_dir += "_aug"
         checkpoint_dir += '_%dway_%dshot' % (n_way, n_shot)
@@ -188,7 +193,7 @@ def run(method, dataset_name, class_type, ep_num, model_name, aug_used=False):
         "n_way": n_way,
         "n_shot": n_shot,
         "save_features": False,
-        "dataset_name": dataset_name
+        "dataset_name": "cross" if cross else dataset_name
     }
 
     calc_model_size(model)
@@ -216,7 +221,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='few-shot inference')
     parser.add_argument('--seed', default=50, type=int)
     parser.add_argument('--dataset_name', default="CUB", choices=["CUB", "miniImagenet"])
-    parser.add_argument('--method', default='simpleshot',
+    parser.add_argument('--method', default='DeepEMD',
                         choices=["maml_approx", "matchingnet", "protonet", "relationnet",
                                  "relationnet_softmax", "DeepEMD",
                                  "simpleshot"])
@@ -225,6 +230,7 @@ if __name__ == '__main__':
     parser.add_argument('--class_type', default="novel", choices=["base", "val", "novel"])
     parser.add_argument('--ep_num', default=600, type=int)
     parser.add_argument('--aug_used', action='store_true',  help='performed train augmentation')
+    parser.add_argument('--cross', action='store_true')
     args = parser.parse_args()
     print(vars(args))
 
@@ -238,4 +244,5 @@ if __name__ == '__main__':
         class_type=args.class_type,
         ep_num=args.ep_num,
         model_name=args.model_name,
-        aug_used=args.aug_used)
+        aug_used=args.aug_used,
+        cross=args.cross)
