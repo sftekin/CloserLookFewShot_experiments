@@ -92,7 +92,7 @@ def calc_model_size(model):
     print('model size: {:.3f}MB'.format(size_all_mb))
 
 
-def run(method, dataset_name, class_type, ep_num, model_name):
+def run(method, dataset_name, class_type, ep_num, model_name, aug_used=False):
     n_query = 15
     n_way = 5
     n_shot = 1
@@ -110,9 +110,6 @@ def run(method, dataset_name, class_type, ep_num, model_name):
             image_size = 84
         else:
             image_size = 224
-
-    checkpoint_dir = '%s/checkpoints/%s/%s_%s' % (configs.save_dir, dataset_name, model_name, method)
-    checkpoint_dir += '_%dway_%dshot' % (n_way, n_shot)
 
     loader = get_episode_loader(meta_file_path=base_file, image_size=image_size, n_episodes=ep_num,
                                 augmentation=False, n_way=n_way, n_shot=n_shot, n_query=n_query,
@@ -168,6 +165,11 @@ def run(method, dataset_name, class_type, ep_num, model_name):
         tmp = torch.load(save_path)
         model.load_state_dict(tmp["state_dict"])
     else:
+        checkpoint_dir = '%s/checkpoints/%s/%s_%s' % (configs.save_dir, dataset_name, model_name, method)
+        if aug_used:
+            checkpoint_dir += "_aug"
+        checkpoint_dir += '_%dway_%dshot' % (n_way, n_shot)
+
         modelfile = get_best_file(checkpoint_dir)
 
         model = model.cuda()
@@ -222,6 +224,7 @@ if __name__ == '__main__':
                                                                         'ResNet34', "WideRes", "DenseNet121"])
     parser.add_argument('--class_type', default="novel", choices=["base", "val", "novel"])
     parser.add_argument('--ep_num', default=600, type=int)
+    parser.add_argument('--aug_used', action='store_true',  help='performed train augmentation')
     args = parser.parse_args()
     print(vars(args))
 
@@ -234,4 +237,5 @@ if __name__ == '__main__':
         dataset_name=args.dataset_name,
         class_type=args.class_type,
         ep_num=args.ep_num,
-        model_name=args.model_name)
+        model_name=args.model_name,
+        aug_used=args.aug_used)
