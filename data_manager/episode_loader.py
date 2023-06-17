@@ -10,16 +10,21 @@ from data_manager.transform_loader import TransformLoader
 
 
 class EpisodeSet(Dataset):
-    def __init__(self, meta_file_path, transform, batch_size, load_sampler_indexes=False, max_batch_count=1000):
+    def __init__(self, meta_file_path, transform, batch_size, dataset_name,
+                 load_sampler_indexes=False, max_batch_count=1000):
         self.meta_file_path = meta_file_path
         self.transform = transform
         self.batch_size = batch_size
         self.load_sampler_indexes = load_sampler_indexes
         self.max_batch_count = max_batch_count
-        self.dataset = os.path.basename(meta_file_path).split(".")[0]
+        self.dataset_name = dataset_name
+        self.class_type = os.path.basename(meta_file_path).split(".")[0]
+
+        assert self.dataset_name in ["miniImagenet", "CUB"]
+
         self.working_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.sampler_dir = os.path.join(self.working_dir, "checkpoints", "miniImagenet", "sampler")
-        self.sampler_path = os.path.join(self.sampler_dir, f"{self.dataset}_im_sampler.pkl")
+        self.sampler_dir = os.path.join(self.working_dir, "checkpoints", self.dataset_name, "sampler")
+        self.sampler_path = os.path.join(self.sampler_dir, f"{self.class_type}_im_sampler.pkl")
 
         # load the meta file path
         with open(meta_file_path, 'r') as f:
@@ -125,7 +130,7 @@ class EpisodeBatchSampler:
 
 
 def get_episode_loader(meta_file_path, image_size, n_episodes, augmentation,
-                       n_way, n_shot, n_query, num_workers, load_sampler_indexes=False):
+                       n_way, n_shot, n_query, num_workers, dataset_name, load_sampler_indexes=False):
     # create the transformer and the episode creator
     transform = TransformLoader(image_size=image_size,
                                 augmentation=augmentation)
@@ -133,10 +138,11 @@ def get_episode_loader(meta_file_path, image_size, n_episodes, augmentation,
                          transform=transform.get_transform(),
                          batch_size=n_shot + n_query,
                          max_batch_count=n_episodes,
-                         load_sampler_indexes=load_sampler_indexes)
+                         load_sampler_indexes=load_sampler_indexes,
+                         dataset_name=dataset_name)
 
     # load the batch sampler if load_sampler_indexes is true
-    batch_sampler_path = os.path.join(dataset.sampler_dir, f"{dataset.dataset}_{n_episodes}_batch_sampler.pkl")
+    batch_sampler_path = os.path.join(dataset.sampler_dir, f"{dataset.dataset_name}_{n_episodes}_batch_sampler.pkl")
     if load_sampler_indexes and os.path.exists(batch_sampler_path):
         with open(batch_sampler_path, "rb") as f:
             batch_sampler = pkl.load(f)
@@ -199,7 +205,6 @@ def visualize_episode(input_idx, dataset, batch_sampler, n_query, n_way):
     # img = Image.open(self.filenames[item]).convert('RGB')
 
 
-
 if __name__ == '__main__':
     cur_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     way = 5
@@ -208,11 +213,13 @@ if __name__ == '__main__':
     ep = 100
     num_workers = 1
     im_size = 84
-    meta_file = os.path.join(cur_dir, "filelists", "miniImagenet", "base.json")
+    dataset_name = "CUB"
+    # dataset_name = "miniImagenet"
+    meta_file = os.path.join(cur_dir, "filelists", dataset_name, "base.json")
 
     trs = TransformLoader(image_size=im_size)
     ds = EpisodeSet(meta_file_path=meta_file, transform=trs.get_transform(),
-                    batch_size=shot + query, load_sampler_indexes=False)
+                    batch_size=shot + query, dataset_name=dataset_name, load_sampler_indexes=False)
     smp = EpisodeBatchSampler(n_classes=len(ds), n_way=way, n_episodes=ep)
 
     batch_sampler_path = os.path.join(ds.sampler_dir, "batch_sampler.pkl")
@@ -233,7 +240,7 @@ if __name__ == '__main__':
             break
 
     ds = EpisodeSet(meta_file_path=meta_file, transform=trs.get_transform(),
-                    batch_size=shot + query, load_sampler_indexes=True)
+                    batch_size=shot + query, dataset_name=dataset_name, load_sampler_indexes=True)
     with open(batch_sampler_path, "rb") as f:
         rand_samples = pkl.load(f)
     dl = DataLoader(dataset=ds, batch_sampler=rand_samples, num_workers=num_workers, pin_memory=True)

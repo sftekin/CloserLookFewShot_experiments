@@ -17,8 +17,10 @@ from methods.deep_emd import DeepEMD
 from methods.emd_utils import emd_load_model, get_deep_emd_args, deep_emd_episode
 from methods.simpleshot_utils import ss_step, ss_episode
 from data_manager.episode_loader import get_episode_loader
-
 import methods.ss_backbones as ss_backbones
+import torch.multiprocessing
+
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 def infer(model, loader, mode, method, model_name, n_query, n_way, n_shot, **kwargs):
@@ -58,17 +60,17 @@ def infer(model, loader, mode, method, model_name, n_query, n_way, n_shot, **kwa
         negatives[i, pred != y_query] = 1
         corrects = np.sum(pred == y_query)
         acc = corrects / len(y_query) * 100
-        print(f"\rEpisode {i+1} / {len(loader)}: {acc:.2f}", end="", flush=True)
+        print(f"\rEpisode {i + 1} / {len(loader)}: {acc:.2f}", end="", flush=True)
         acc_all.append(acc)
 
-    print(f"\nApprox, one forward pass takes {one_forward_pass/len(loader):.3f} seconds")
+    print(f"\nApprox, one forward pass takes {one_forward_pass / len(loader):.3f} seconds")
 
     acc_all = np.asarray(acc_all)
     acc_mean = np.mean(acc_all)
     acc_std = np.std(acc_all)
     print(f'{mode}->{len(loader)} Acc = {acc_mean:.2f} +- {1.96 * acc_std / np.sqrt(len(loader)):.2f}')
 
-    model_outs_dir = os.path.join(configs.save_dir, "inference", "model_outs", method)
+    model_outs_dir = os.path.join(configs.save_dir, "inference", kwargs["dataset_name"], "model_outs", method)
     if not os.path.exists(model_outs_dir):
         os.makedirs(model_outs_dir)
 
@@ -90,12 +92,11 @@ def calc_model_size(model):
     print('model size: {:.3f}MB'.format(size_all_mb))
 
 
-def run(method, data_set, ep_num, model_name):
-    dataset_name = "miniImagenet"
+def run(method, dataset_name, class_type, ep_num, model_name):
     n_query = 15
     n_way = 5
     n_shot = 1
-    base_file = configs.data_dir[dataset_name] + f'{data_set}.json'
+    base_file = configs.data_dir[dataset_name] + f'{class_type}.json'
 
     if method == "DeepEMD":
         image_size = 84
@@ -115,7 +116,7 @@ def run(method, data_set, ep_num, model_name):
 
     loader = get_episode_loader(meta_file_path=base_file, image_size=image_size, n_episodes=ep_num,
                                 augmentation=False, n_way=n_way, n_shot=n_shot, n_query=n_query,
-                                num_workers=8, load_sampler_indexes=True)
+                                num_workers=8, load_sampler_indexes=True, dataset_name=dataset_name)
 
     if method in ['relationnet', 'relationnet_softmax']:
         if 'Conv4' in model_name:
@@ -153,8 +154,8 @@ def run(method, data_set, ep_num, model_name):
             "wideres": ss_backbones.wideres,
             "densenet121": ss_backbones.densenet121
         }
-
-        model = bb_mapper[bb_model](num_classes=64, remove_linear=False)
+        num_classes = 100 if dataset_name == "CUB" else 64
+        model = bb_mapper[bb_model](num_classes=num_classes, remove_linear=False)
         model = torch.nn.DataParallel(model).cuda()
     else:
         raise ValueError
@@ -180,11 +181,12 @@ def run(method, data_set, ep_num, model_name):
         "loader": loader,
         "method": method,
         "model_name": model_name,
-        "mode": data_set,
+        "mode": class_type,
         "n_query": n_query,
         "n_way": n_way,
         "n_shot": n_shot,
-        "save_features": False
+        "save_features": False,
+        "dataset_name": dataset_name
     }
 
     calc_model_size(model)
@@ -194,7 +196,7 @@ def run(method, data_set, ep_num, model_name):
         base_ds_path = configs.data_dir[dataset_name] + f'base.json'
         base_loader = get_episode_loader(meta_file_path=base_ds_path, image_size=image_size, n_episodes=ep_num,
                                          augmentation=False, n_way=n_way, n_shot=n_shot, n_query=n_query,
-                                         num_workers=8, load_sampler_indexes=True)
+                                         num_workers=8, load_sampler_indexes=True, dataset_name=dataset_name)
         base_mean = []
         with torch.no_grad():
             for i, (x, y) in enumerate(base_loader):
@@ -211,13 +213,14 @@ def run(method, data_set, ep_num, model_name):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='few-shot inference')
     parser.add_argument('--seed', default=50, type=int)
+    parser.add_argument('--dataset_name', default="CUB", choices=["CUB", "miniImagenet"])
     parser.add_argument('--method', default='simpleshot',
                         choices=["maml_approx", "matchingnet", "protonet", "relationnet",
                                  "relationnet_softmax", "DeepEMD",
                                  "simpleshot"])
-    parser.add_argument('--model_name', default="DenseNet121", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
-                                                                     'ResNet34', "WideRes", "DenseNet121"])
-    parser.add_argument('--data_set', default="novel", choices=["base", "val", "novel"])
+    parser.add_argument('--model_name', default="ResNet18", choices=['Conv4', 'Conv6', 'ResNet10', 'ResNet18',
+                                                                        'ResNet34', "WideRes", "DenseNet121"])
+    parser.add_argument('--class_type', default="novel", choices=["base", "val", "novel"])
     parser.add_argument('--ep_num', default=600, type=int)
     args = parser.parse_args()
     print(vars(args))
@@ -228,6 +231,7 @@ if __name__ == '__main__':
     random.seed(args.seed)
 
     run(method=args.method,
-        data_set=args.data_set,
+        dataset_name=args.dataset_name,
+        class_type=args.class_type,
         ep_num=args.ep_num,
         model_name=args.model_name)

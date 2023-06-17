@@ -19,14 +19,14 @@ class TransformLoader:
         if not augmentation:
             self.transform_list = ['Resize', 'CenterCrop', 'ToTensor', 'Normalize']
         else:
-            self.transform_list = ['RandomSizedCrop', 'RandomHorizontalFlip', 'ToTensor', 'Normalize']
+            self.transform_list = ['RandomResizedCrop', 'RandomHorizontalFlip', 'ToTensor', 'Normalize']
 
     def parse_transform(self, transform_type):
         if transform_type == 'ImageJitter':
             method = ImageJitter(self.jitter_param)
             return method
         method = getattr(transforms, transform_type)
-        if transform_type == 'RandomSizedCrop':
+        if transform_type == 'RandomResizedCrop':
             return method(self.image_size)
         elif transform_type == 'CenterCrop':
             return method(self.image_size)
